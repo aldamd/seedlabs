@@ -364,7 +364,7 @@ def spoof_pkt(pkt):
                 data = pkt[TCP].payload.load # The original payload data
                 if b"daniel" in data.lower().split():
                     idx = data.lower().find(b"daniel")
-                    newdata = data[:idx] + b"AAAAAA" + data[idx + len(b"daniel")]
+                    newdata = data[:idx] + b"AAAAAA" + data[idx + len(b"daniel"):]
                     print(f"replaced {data} with {newdata}")
                     seq_offset += len(newdata) - len(data)
                     data = newdata
