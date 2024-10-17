@@ -206,13 +206,6 @@ seed@VM:~/.../volumes$ dockps
 ef3a05ea874d  A-10.9.0.5
 ```
 
-### Network Config
-```shell
-M - 10.9.0.105 - 02:42:0a:09:00:69
-A - 10.9.0.5   - 02:42:0a:09:00:05
-B - 10.9.0.6   - 02:42:0a:09:00:06
-```
-
 ### Task 2.1: Launch the ARP cache poisoning attack
 I first ensured that host A had an ARP cache entry for host B and vice versa. Then, I used the following scapy python script to maliciously overwrite the entries with host M's MAC address:
 ```python3
