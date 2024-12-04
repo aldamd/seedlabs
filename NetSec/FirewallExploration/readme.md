@@ -142,6 +142,113 @@ void removeFilter(void) {
    nf_unregister_net_hook(&init_net, &hook6);
 }
 ```
+```shell
+seed@VM:~/.../packet_filter$ ping 127.0.0.1
+seed@VM:~/.../packet_filter$ dmesg
+[ 6196.784831] Registering filters.
+[ 6203.533004] *** LOCAL_OUT
+[ 6203.533007]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[ 6203.533016] *** POST_ROUTING
+[ 6203.533017]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[ 6203.533028] *** PRE_ROUTING
+[ 6203.533029]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[ 6203.533030] *** LOCAL_IN
+[ 6203.533031]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[...]
+```
+When performing a ping request, LOCAL_OUT, LOCAL_IN, POST_ROUTING, and PRE_ROUTING hook numbers are utilized.
+LOCAL_OUT: packet is queued for output by local machine
+POST_ROUTING: packet routing has been calculated and is ready to be sent out
+PRE_ROUTING: packet is queued for input, before routing decisions have been made
+LOCAL_IN: packet destined for local machine has been registered
+FORWARD: packets not destined for local machine but are being forwarded to another host
+
+#### Prevent Ping and Telnet
+```c
+unsigned int blockPingTelnet(void *priv, struct sk_buff *skb,
+                             const struct nf_hook_state *state)
+{
+   if (!skb) return NF_ACCEPT;
+
+   struct iphdr *ip_header;
+   struct icmphdr *icmp_header;
+
+   // Block ping requests
+   ip_header = ip_hdr(skb);
+   if (ip_header->protocol == IPPROTO_ICMP) {
+       icmp_header = icmp_hdr(skb);
+       if (icmp_header->type == ICMP_ECHO) {
+            printk(KERN_INFO "*** Blocked ICMP Echo Request\n");
+            return NF_DROP;
+       }
+   }
+
+   struct tcphdr *tcp_header;
+   u16  port   = 23;
+
+   // Block Telnet requests
+   if (iph->protocol == IPPROTO_TCP) {
+       tcp_header = tcp_hdr(skb);
+       if (ntohs(tcp_header->dest) == port){
+            printk(KERN_WARNING "*** Blocked Telnet Request\n");
+            return NF_DROP;
+        }
+   }
+
+   return NF_ACCEPT;
+}
+
+unsigned int printInfo(void *priv, struct sk_buff *skb,
+                 const struct nf_hook_state *state)
+{
+   //skb is the pointer to the actual packet
+   struct iphdr *iph;
+   char *hook;
+   char *protocol;
+
+   switch (state->hook){
+     case NF_INET_LOCAL_IN:     hook = "LOCAL_IN";     break; 
+     case NF_INET_LOCAL_OUT:    hook = "LOCAL_OUT";    break; 
+     case NF_INET_PRE_ROUTING:  hook = "PRE_ROUTING";  break; 
+     case NF_INET_POST_ROUTING: hook = "POST_ROUTING"; break; 
+     case NF_INET_FORWARD:      hook = "FORWARD";      break; 
+     default:                   hook = "IMPOSSIBLE";   break;
+   }
+   printk(KERN_INFO "*** %s\n", hook); // Print out the hook info
+
+   iph = ip_hdr(skb);
+   switch (iph->protocol){
+     case IPPROTO_UDP:  protocol = "UDP";   break;
+     case IPPROTO_TCP:  protocol = "TCP";   break;
+     case IPPROTO_ICMP: protocol = "ICMP";  break;
+     default:           protocol = "OTHER"; break;
+
+   }
+   // Print out the IP addresses and protocol
+   printk(KERN_INFO "    %pI4  --> %pI4 (%s)\n", 
+                    &(iph->saddr), &(iph->daddr), protocol);
+
+   return NF_ACCEPT;
+}
+
+int registerFilter(void) {
+   printk(KERN_INFO "Registering filters.\n");
+
+   hook1.hook = printInfo;
+   hook1.hooknum = NF_INET_LOCAL_IN;
+   hook1.pf = PF_INET;
+   hook1.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook1);
+
+   hook2.hook = blockPingTelnet;
+   hook2.hooknum = NF_INET_LOCAL_IN;
+   hook2.pf = PF_INET;
+   hook2.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook2);
+
+   return 0;
+}
+```
 
 ## Task 2: Experimenting with Stateless Firewall Rules
 
