@@ -258,34 +258,34 @@ seed@VM:~/.../packet_filter$ dmesg
 ### Docker Config
 ```shell
 seed@VM:~$ dockps
-3607e31516bc  host3-192.168.60.7
-0fc6ae0088a0  host1-192.168.60.5
-1deffe30b8c4  seed-router
-63811895d89f  host2-192.168.60.6
-b3aa69e3ae5a  hostA-10.9.0.5
+e9f4cdfd25ae  host1-192.168.60.5
+de3799584b1f  hostA-10.9.0.5
+378db28a79b1  host2-192.168.60.6
+9b0f684bb371  host3-192.168.60.7
+954f931756c4  seed-router
 ```
 ### Task 2.A: Protecting the Router
 ```shell
-seed@VM:~$ docksh 1de
-root@1deffe30b8c4:/# iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+seed@VM:~$ docksh 954
+root@954f931756c4:/# iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
 // allows incoming icmp echo (ping) requests
-root@1deffe30b8c4:/# iptables -A OUTPUT -p icmp --icmp-type echo-reply -j ACCEPT
+root@954f931756c4:/# iptables -A OUTPUT -p icmp --icmp-type echo-reply -j ACCEPT
 // allows outgoing icmp replies
-root@1deffe30b8c4:/# iptables -P OUTPUT DROP
+root@954f931756c4:/# iptables -P OUTPUT DROP
 // sets default output behavior to drop everything aside from existing rules
-root@1deffe30b8c4:/# iptables -P INPUT DROP
+root@954f931756c4:/# iptables -P INPUT DROP
 // sets default input behavior to drop everything aside from existing rules
 ```
 
 ```shell
-seed@VM:~$ docksh b3aa
-root@b3aa69e3ae5a:/# ping seed-router
+seed@VM:~$ docksh de3
+root@de3799584b1f:/# ping seed-router
 PING seed-router (10.9.0.11) 56(84) bytes of data.
 ^C
 --- seed-router ping statistics ---
 8 packets transmitted, 0 received, 100% packet loss, time 7167ms
 
-root@b3aa69e3ae5a:/# telnet seed-router
+root@de3799584b1f:/# telnet seed-router
 Trying 10.9.0.11...
 ^C
 ```
@@ -293,6 +293,117 @@ Trying 10.9.0.11...
 I am unable to ping the router from 10.9.0.5, nor am I able to telnet into the router
 
 ### Task 2.B: Protecting the Internal Network
+```shell
+seed@VM:~$ docksh seed-router
+root@954f931756c4:/# ip a
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+61: eth0@if62: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default 
+    link/ether 02:42:0a:09:00:0b brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 10.9.0.11/24 brd 10.9.0.255 scope global eth0
+       valid_lft forever preferred_lft forever
+63: eth1@if64: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default 
+    link/ether 02:42:c0:a8:3c:0b brd ff:ff:ff:ff:ff:ff link-netnsid 0
+    inet 192.168.60.11/24 brd 192.168.60.255 scope global eth1
+       valid_lft forever preferred_lft forever
+```
+From the above ```$ ip a``` command, we know that eth0@if62 is the external interface while eth1@if64 is the internal interface.
+
+```shell
+root@954f931756c4:/# iptables -P INPUT DROP
+root@954f931756c4:/# iptables -P FORWARD DROP
+// default the INPUT and FORWARD policies to block unwanted traffic
+root@954f931756c4:/# iptables -P OUTPUT ACCEPT
+// default OUTPUT policy to accept connections, allowing router to send replies
+
+root@954f931756c4:/# iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+root@954f931756c4:/# iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+// allow INPUT and FORWARD packets tied to existing connections -- packets replying to previously sent requests
+
+root@954f931756c4:/# iptables -A INPUT -p icmp --icmp-type echo-request -i eth0 -j ACCEPT
+// allow ping requests from external network to the router
+
+root@954f931756c4:/# iptables -A FORWARD -p icmp --icmp-type echo-request -i eth1 -o eth0 -j ACCEPT
+// allow hosts on the internal network to send ping requests to hosts on the external network
+
+root@954f931756c4:/# iptables -A FORWARD -p icmp --icmp-type echo-request -i eth0 -o eth1 -j DROP
+// block ping requests from external hosts to internal hosts
+
+root@954f931756c4:/# iptables -L -n -v
+Chain INPUT (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+    0     0 ACCEPT     icmp --  eth0   *       0.0.0.0/0            0.0.0.0/0            icmptype 8
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+    0     0 ACCEPT     icmp --  eth1   eth0    0.0.0.0/0            0.0.0.0/0            icmptype 8
+    0     0 DROP       icmp --  eth0   eth1    0.0.0.0/0            0.0.0.0/0            icmptype 8
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+```
+
+Ping request from external host to internal host:
+```shell
+seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
+root@de3799584b1f:/# ping 192.168.60.5
+PING 192.168.60.5 (192.168.60.5) 56(84) bytes of data.
+^C
+--- 192.168.60.5 ping statistics ---
+4 packets transmitted, 0 received, 100% packet loss, time 3077ms
+```
+
+Ping request from external host to router:
+```shell
+root@de3799584b1f:/# ping 10.9.0.11
+PING 10.9.0.11 (10.9.0.11) 56(84) bytes of data.
+64 bytes from 10.9.0.11: icmp_seq=1 ttl=64 time=0.091 ms
+64 bytes from 10.9.0.11: icmp_seq=2 ttl=64 time=0.161 ms
+64 bytes from 10.9.0.11: icmp_seq=3 ttl=64 time=0.169 ms
+^C
+--- 10.9.0.11 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2098ms
+rtt min/avg/max/mdev = 0.091/0.140/0.169/0.035 ms
+```
+
+Ping request from internal host to external host
+```shell
+seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
+root@e9f4cdfd25ae:/# ping 10.9.0.5
+PING 10.9.0.5 (10.9.0.5) 56(84) bytes of data.
+64 bytes from 10.9.0.5: icmp_seq=1 ttl=63 time=0.190 ms
+64 bytes from 10.9.0.5: icmp_seq=2 ttl=63 time=0.331 ms
+64 bytes from 10.9.0.5: icmp_seq=3 ttl=63 time=0.272 ms
+^C
+--- 10.9.0.5 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2028ms
+rtt min/avg/max/mdev = 0.190/0.264/0.331/0.057 ms
+```
+
+Ping request from internal host to internal host
+```shell
+root@e9f4cdfd25ae:/# ping 192.168.60.6
+PING 192.168.60.6 (192.168.60.6) 56(84) bytes of data.
+64 bytes from 192.168.60.6: icmp_seq=1 ttl=64 time=0.129 ms
+64 bytes from 192.168.60.6: icmp_seq=2 ttl=64 time=0.163 ms
+64 bytes from 192.168.60.6: icmp_seq=3 ttl=64 time=0.158 ms
+^C
+--- 192.168.60.6 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2163ms
+rtt min/avg/max/mdev = 0.129/0.150/0.163/0.015 ms
+```
+
+Telnet request from external host to internal host
+```shell
+seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
+root@de3799584b1f:/# telnet 192.168.60.5
+Trying 192.168.60.5...
+^C
+```
 
 ### Task 2.C: Protecting Internal Servers
 
