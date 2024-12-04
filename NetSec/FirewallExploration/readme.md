@@ -6,16 +6,6 @@ B - 10.9.0.6   - 02:42:0a:09:00:06
 ```
 
 ## Task 1: Implementing a Simple Firewall
-### Docker Config
-```shell
-seed@VM:~$ dockps
-50d7415fb4c7  hostA-10.9.0.5
-674b136edb37  seed-router
-cad7ea28c884  host1-192.168.60.5
-b6677121fdb5  host2-192.168.60.6
-b3579d62e8f8  host3-192.168.60.7
-```
-
 ### 1.A Implement a Simple Kernel Module
 For this task, we need to compile the simple kernel module that prints "Hello World" on load and "Bye Bye World" on removal. In order to compile the C code, we use the ```$ make``` command. The contents of the Makefile are:
 ```
@@ -265,8 +255,42 @@ seed@VM:~/.../packet_filter$ dmesg
 ```
 
 ## Task 2: Experimenting with Stateless Firewall Rules
-
+### Docker Config
+```shell
+seed@VM:~$ dockps
+3607e31516bc  host3-192.168.60.7
+0fc6ae0088a0  host1-192.168.60.5
+1deffe30b8c4  seed-router
+63811895d89f  host2-192.168.60.6
+b3aa69e3ae5a  hostA-10.9.0.5
+```
 ### Task 2.A: Protecting the Router
+```shell
+seed@VM:~$ docksh 1de
+root@1deffe30b8c4:/# iptables -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+// allows incoming icmp echo (ping) requests
+root@1deffe30b8c4:/# iptables -A OUTPUT -p icmp --icmp-type echo-reply -j ACCEPT
+// allows outgoing icmp replies
+root@1deffe30b8c4:/# iptables -P OUTPUT DROP
+// sets default output behavior to drop everything aside from existing rules
+root@1deffe30b8c4:/# iptables -P INPUT DROP
+// sets default input behavior to drop everything aside from existing rules
+```
+
+```shell
+seed@VM:~$ docksh b3aa
+root@b3aa69e3ae5a:/# ping seed-router
+PING seed-router (10.9.0.11) 56(84) bytes of data.
+^C
+--- seed-router ping statistics ---
+8 packets transmitted, 0 received, 100% packet loss, time 7167ms
+
+root@b3aa69e3ae5a:/# telnet seed-router
+Trying 10.9.0.11...
+^C
+```
+
+I am unable to ping the router from 10.9.0.5, nor am I able to telnet into the router
 
 ### Task 2.B: Protecting the Internal Network
 
