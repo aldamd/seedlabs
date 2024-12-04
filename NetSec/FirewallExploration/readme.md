@@ -292,6 +292,8 @@ Trying 10.9.0.11...
 
 I am unable to ping the router from 10.9.0.5, nor am I able to telnet into the router
 
+----
+
 ### Task 2.B: Protecting the Internal Network
 ```shell
 seed@VM:~$ docksh seed-router
@@ -315,18 +317,15 @@ From the above ```$ ip a``` command, we know that eth0@if62 is the external inte
 root@954f931756c4:/# iptables -P INPUT DROP
 root@954f931756c4:/# iptables -P FORWARD DROP
 // default the INPUT and FORWARD policies to block unwanted traffic
-root@954f931756c4:/# iptables -P OUTPUT ACCEPT
-// default OUTPUT policy to accept connections, allowing router to send replies
+// keep the default OUTPUT policy to accept connections, allowing router to send replies
 
-root@954f931756c4:/# iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-root@954f931756c4:/# iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-// allow INPUT and FORWARD packets tied to existing connections -- packets replying to previously sent requests
+root@954f931756c4:/# iptables -A FORWARD -i eth1 -o eth0 -p icmp --icmp-type echo-request -j ACCEPT
+// allow echo requests from the internal network to the external network
+root@954f931756c4:/# iptables -A FORWARD -i eth0 -o eth1 -p icmp --icmp-type echo-reply -j ACCEPT
+// allow echo replies from the external network to the internal network
 
 root@954f931756c4:/# iptables -A INPUT -p icmp --icmp-type echo-request -i eth0 -j ACCEPT
 // allow ping requests from external network to the router
-
-root@954f931756c4:/# iptables -A FORWARD -p icmp --icmp-type echo-request -i eth1 -o eth0 -j ACCEPT
-// allow hosts on the internal network to send ping requests to hosts on the external network
 
 root@954f931756c4:/# iptables -A FORWARD -p icmp --icmp-type echo-request -i eth0 -o eth1 -j DROP
 // block ping requests from external hosts to internal hosts
@@ -334,17 +333,13 @@ root@954f931756c4:/# iptables -A FORWARD -p icmp --icmp-type echo-request -i eth
 root@954f931756c4:/# iptables -L -n -v
 Chain INPUT (policy DROP 0 packets, 0 bytes)
  pkts bytes target     prot opt in     out     source               destination         
-    0     0 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
-    0     0 ACCEPT     icmp --  eth0   *       0.0.0.0/0            0.0.0.0/0            icmptype 8
+    2   168 ACCEPT     icmp --  eth0   *       0.0.0.0/0            0.0.0.0/0            icmptype 8
 
 Chain FORWARD (policy DROP 0 packets, 0 bytes)
  pkts bytes target     prot opt in     out     source               destination         
-    0     0 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
-    0     0 ACCEPT     icmp --  eth1   eth0    0.0.0.0/0            0.0.0.0/0            icmptype 8
-    0     0 DROP       icmp --  eth0   eth1    0.0.0.0/0            0.0.0.0/0            icmptype 8
-
-Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
- pkts bytes target     prot opt in     out     source               destination
+    3   252 ACCEPT     icmp --  eth1   eth0    0.0.0.0/0            0.0.0.0/0            icmptype 8
+    3   252 ACCEPT     icmp --  eth0   eth1    0.0.0.0/0            0.0.0.0/0            icmptype 0
+    2   168 DROP       icmp --  eth0   eth1    0.0.0.0/0            0.0.0.0/0            icmptype 8
 ```
 
 **Ping request from external host to internal host**
@@ -404,6 +399,8 @@ root@de3799584b1f:/# telnet 192.168.60.5
 Trying 192.168.60.5...
 ^C
 ```
+
+----
 
 ### Task 2.C: Protecting Internal Servers
 ```shell
