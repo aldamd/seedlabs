@@ -406,9 +406,90 @@ Trying 192.168.60.5...
 ```
 
 ### Task 2.C: Protecting Internal Servers
+```shell
+seed@VM:~/.../packet_filter$ docksh seed-router
+root@954f931756c4:/# iptables -P INPUT DROP
+root@954f931756c4:/# iptables -P FORWARD DROP
+root@954f931756c4:/# iptables -P OUTPUT ACCEPT
+
+root@954f931756c4:/# iptables -A FORWARD -i eth1 -o eth0 -s 192.168.60.5 -p tcp --sport 23 -j ACCEPT
+// allow telnet packets to route from 192.168.60.5 to the external network
+
+root@954f931756c4:/# iptables -A FORWARD -i eth0 -p tcp --dport 23 -d 192.168.60.5 -j ACCEPT
+// allow telnet packets to route from the external network to 192.168.60.5
+
+root@954f931756c4:/# iptables -A FORWARD -i eth1 -o eth1 -j ACCEPT
+// allow hosts in the internal network to communicate with one another
+
+root@954f931756c4:/# iptables -L -n -v
+Chain INPUT (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+   62  3934 ACCEPT     tcp  --  eth1   eth0    192.168.60.5         0.0.0.0/0            tcp spt:23
+   77  4118 ACCEPT     tcp  --  eth0   *       0.0.0.0/0            192.168.60.5         tcp dpt:23
+    0     0 ACCEPT     all  --  eth1   eth1    0.0.0.0/0            0.0.0.0/0           
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+```
+
+**Connecting to 192.168.60.5:23 From External Host**
+```shell
+seed@VM:~/.../packet_filter$ docksh de3
+root@de3799584b1f:/# telnet 192.168.60.5
+Trying 192.168.60.5...
+Connected to 192.168.60.5.
+Escape character is '^]'.
+Ubuntu 20.04.1 LTS
+e9f4cdfd25ae login: seed
+Password: 
+Welcome to Ubuntu 20.04.1 LTS (GNU/Linux 5.4.0-54-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+This system has been minimized by removing packages and content that are
+not required on a system that users do not log into.
+
+To restore this content, you can run the 'unminimize' command.
+Last login: Wed Dec  4 21:43:53 UTC 2024 on pts/1
+seed@e9f4cdfd25ae:~$
+```
+
+**Connecting to 192.168.60.6:23 From External Host**
+```shell
+root@de3799584b1f:/# telnet 192.168.60.6
+Trying 192.168.60.6...
+^C
+```
+
+**Accessing External Host from Internal Host**
+```shell
+seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
+root@e9f4cdfd25ae:/# ping 10.9.0.5
+PING 10.9.0.5 (10.9.0.5) 56(84) bytes of data.
+^C
+--- 10.9.0.5 ping statistics ---
+4 packets transmitted, 0 received, 100% packet loss, time 3083ms
+```
+
+**Accessing Internal Host From Internal Host**
+```shell
+seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
+root@e9f4cdfd25ae:/# ping 192.168.60.6
+PING 192.168.60.6 (192.168.60.6) 56(84) bytes of data.
+64 bytes from 192.168.60.6: icmp_seq=1 ttl=64 time=0.135 ms
+64 bytes from 192.168.60.6: icmp_seq=2 ttl=64 time=0.259 ms
+^C
+--- 192.168.60.6 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1013ms
+rtt min/avg/max/mdev = 0.135/0.197/0.259/0.062 ms
+```
 
 ## Task 3: Connection Tracking and Stateful Firewall
-
 ### Task 3.A: Experiment with the Connection Tracking
 
 ### Task 3.B: Setting Up a Stateful Firewall
