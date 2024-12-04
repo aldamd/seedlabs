@@ -489,7 +489,125 @@ rtt min/avg/max/mdev = 0.135/0.197/0.259/0.062 ms
 ## Task 3: Connection Tracking and Stateful Firewall
 ### Task 3.A: Experiment with the Connection Tracking
 
+#### ICMP Experiment
+```shell
+seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5                                                                                 
+root@de3799584b1f:/# ping 192.168.60.5
+[...]
+
+seed@VM:~/.../packet_filter$ docksh seed-router
+root@954f931756c4:/# conntrack -L
+icmp     1 29 src=10.9.0.5 dst=192.168.60.5 type=8 code=0 id=121 src=192.168.60.5 dst=10.9.0.5 type=0 code=0 id=121 mark=0 use=1
+conntrack v1.4.5 (conntrack-tools): 1 flow entries have been shown.
+```
+
+For as long as host A was sending ping requests to 192.168.60.5, the seed-router was able to observe the icmp connection. Once the last ping request is sent, it seems to remain in the conntrack buffer for around 30 seconds.
+
+----
+
+#### UDP Experiment
+```shell
+seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
+root@e9f4cdfd25ae:/# nc -lu 9090
+[...]
+
+seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
+root@de3799584b1f:/# nc -u 192.168.60.5 9090
+hello
+
+[...]
+seed@VM:~$ docksh seed-router
+root@954f931756c4:/# conntrack -L
+udp      17 25 src=10.9.0.5 dst=192.168.60.5 sport=33372 dport=9090 [UNREPLIED] src=192.168.60.5 dst=10.9.0.5 sport=9090 dport=33372 mark=0 use=1
+conntrack v1.4.5 (conntrack-tools): 1 flow entries have been shown.
+root@954f931756c4:/# conntrack -L
+conntrack v1.4.5 (conntrack-tools): 0 flow entries have been shown.
+```
+
+The UDP connection state is only kept within a short period of time (~ 30 seconds) that a message is sent over the listener. If enough time elapses, conntrack can no longer observe a connection
+
+----
+
+#### TCP experiment
+```shell
+seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
+root@e9f4cdfd25ae:/# nc -l 9090
+[...]
+
+seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
+root@de3799584b1f:/# nc 192.168.60.5 9090
+hello
+[...]
+
+seed@VM:~$ docksh seed-router
+tcp      6 431985 ESTABLISHED src=10.9.0.5 dst=192.168.60.5 sport=57846 dport=9090 src=192.168.60.5 dst=10.9.0.5 sport=9090 dport=57846 [ASSURED] mark=0 use=1
+conntrack v1.4.5 (conntrack-tools): 1 flow entries have been shown.
+
+// killed listener
+root@954f931756c4:/# conntrack -L
+tcp      6 117 TIME_WAIT src=10.9.0.5 dst=192.168.60.5 sport=57846 dport=9090 src=192.168.60.5 dst=10.9.0.5 sport=9090 dport=57846 [ASSURED] mark=0 use=1
+```
+
+Once the TCP connection is killed, it seems to remain in the conntrack listener for around 2 minutes
+
+----
+
 ### Task 3.B: Setting Up a Stateful Firewall
+
+1. All the internal hosts run a telnet server (listening to port 23). Outside hosts can only access the telnet
+server on 192.168.60.5, not the other internal hosts.
+2. Outside hosts cannot access other internal servers.
+3. Internal hosts can access all the internal servers.
+4. Internal hosts cannot access external servers.
+5. In this task, the connection tracking mechanism is not allowed. It will be used in a later task.
+
+```shell
+seed@VM:~$ docksh seed-router
+root@954f931756c4:/# iptables -P INPUT DROP
+root@954f931756c4:/# iptables -P FORWARD DROP
+root@954f931756c4:/# iptables -P OUTPUT ACCEPT
+root@954f931756c4:/# iptables -A FORWARD -i eth1 -o eth0 -s 192.168.60.5 -p tcp --sport 23 -j ACCEPT
+root@954f931756c4:/# iptables -A FORWARD -i eth0 -p tcp --dport 23 -d 192.168.60.5 -j ACCEPT
+root@954f931756c4:/# iptables -A FORWARD -i eth1 -o eth1 -j ACCEPT
+// same suite of rules from 2.C
+
+root@954f931756c4:/# iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+root@954f931756c4:/# iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+// allow established and related connections in the INPUT and FORWARD chains
+
+root@954f931756c4:/# iptables -A FORWARD -i eth1 -o eth0 -m conntrack --ctstate NEW -j ACCEPT
+// allow new connections from the internal network to the external network
+
+root@954f931756c4:/# iptables -L -n -v
+Chain INPUT (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+    0     0 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+
+Chain FORWARD (policy DROP 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination         
+   17  1023 ACCEPT     tcp  --  eth1   eth0    192.168.60.5         0.0.0.0/0            tcp spt:23
+   17   973 ACCEPT     tcp  --  eth0   *       0.0.0.0/0            192.168.60.5         tcp dpt:23
+    0     0 ACCEPT     all  --  eth1   eth1    0.0.0.0/0            0.0.0.0/0           
+    5   420 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0            ctstate RELATED,ESTABLISHED
+    1    84 ACCEPT     all  --  eth1   eth0    0.0.0.0/0            0.0.0.0/0            ctstate NEW
+
+Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
+ pkts bytes target     prot opt in     out     source               destination
+```
+
+**Ping From Internal Host to External Host**
+```shell
+seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
+root@e9f4cdfd25ae:/# ping 10.9.0.5
+PING 10.9.0.5 (10.9.0.5) 56(84) bytes of data.
+64 bytes from 10.9.0.5: icmp_seq=1 ttl=63 time=0.125 ms
+64 bytes from 10.9.0.5: icmp_seq=2 ttl=63 time=0.214 ms
+64 bytes from 10.9.0.5: icmp_seq=3 ttl=63 time=0.186 ms
+^C
+--- 10.9.0.5 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2127ms
+rtt min/avg/max/mdev = 0.125/0.175/0.214/0.037 ms
+```
 
 ## Task 4: Limiting Network Traffic
 
