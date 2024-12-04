@@ -55,6 +55,93 @@ seed@VM:~/.../kernel_module$ dmesg | tail -n 1
 ```
 
 ### 1.B Implement a Simple Firewall Using Netfilter
+#### Kernel Module Compilation and DNS Testing
+Compiling and loading the netfilter kernel module:
+```shell
+eed@VM:~/.../packet_filter$ make
+make -C /lib/modules/5.4.0-54-generic/build M=/home/seed/Labsetup/Files/packet_filter modules
+make[1]: Entering directory '/usr/src/linux-headers-5.4.0-54-generic'
+  CC [M]  /home/seed/Labsetup/Files/packet_filter/seedFilter.o
+  Building modules, stage 2.
+  MODPOST 1 modules
+  CC [M]  /home/seed/Labsetup/Files/packet_filter/seedFilter.mod.o
+  LD [M]  /home/seed/Labsetup/Files/packet_filter/seedFilter.ko
+make[1]: Leaving directory '/usr/src/linux-headers-5.4.0-54-generic'
+```
+The default behavior of this netfilter should drop any UDP:53 (DNS) traffic towards 8.8.8.8 (one of Google's DNS servers). Let's test the default behavior:
+```shell
+seed@VM:~/.../packet_filter$ dig @8.8.8.8 www.example.com
+[...]
+;; ANSWER SECTION:
+www.example.com.	1718	IN	A	93.184.215.14
+[...]
+```
+Looking good, now let's see what happens when we load the kernel module:
+```shell
+seed@VM:~/.../packet_filter$ sudo insmod seedFilter.ko
+seed@VM:~/.../packet_filter$ dig @8.8.8.8 www.example.com
+
+; <<>> DiG 9.16.1-Ubuntu <<>> @8.8.8.8 www.example.com
+; (1 server found)
+;; global options: +cmd
+;; connection timed out; no servers could be reached
+```
+Seems to have done its job!
+
+#### printInfo Hooking
+```c
+int registerFilter(void) {
+   printk(KERN_INFO "Registering filters.\n");
+
+   hook1.hook = printInfo;
+   hook1.hooknum = NF_INET_LOCAL_OUT;
+   hook1.pf = PF_INET;
+   hook1.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook1);
+
+  // hook2.hook = blockUDP;
+  // hook2.hooknum = NF_INET_POST_ROUTING;
+  // hook2.pf = PF_INET;
+  // hook2.priority = NF_IP_PRI_FIRST;
+  // nf_register_net_hook(&init_net, &hook2);
+
+   hook3.hook = printInfo;
+   hook3.hooknum = NF_INET_PRE_ROUTING;
+   hook3.pf = PF_INET;
+   hook3.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook3);
+
+   hook4.hook = printInfo;
+   hook4.hooknum = NF_INET_LOCAL_IN;
+   hook4.pf = PF_INET;
+   hook4.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook4);
+
+   hook5.hook = printInfo;
+   hook5.hooknum = NF_INET_FORWARD;
+   hook5.pf = PF_INET;
+   hook5.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook5);
+
+   hook6.hook = printInfo;
+   hook6.hooknum = NF_INET_POST_ROUTING;
+   hook6.pf = PF_INET;
+   hook6.priority = NF_IP_PRI_FIRST;
+   nf_register_net_hook(&init_net, &hook6);
+
+   return 0;
+}
+
+void removeFilter(void) {
+   printk(KERN_INFO "The filters are being removed.\n");
+   nf_unregister_net_hook(&init_net, &hook1);
+   //nf_unregister_net_hook(&init_net, &hook2);
+   nf_unregister_net_hook(&init_net, &hook3);
+   nf_unregister_net_hook(&init_net, &hook4);
+   nf_unregister_net_hook(&init_net, &hook5);
+   nf_unregister_net_hook(&init_net, &hook6);
+}
+```
 
 ## Task 2: Experimenting with Stateless Firewall Rules
 
