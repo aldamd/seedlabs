@@ -88,6 +88,8 @@ seed@VM:~/.../packet_filter$ dig @8.8.8.8 www.example.com
 ```
 Seems to have done its job!
 
+----
+
 #### printInfo Hooking
 ```c
 int registerFilter(void) {
@@ -164,6 +166,8 @@ PRE_ROUTING: packet is queued for input, before routing decisions have been made
 LOCAL_IN: packet destined for local machine has been registered
 FORWARD: packets not destined for local machine but are being forwarded to another host
 ```
+
+----
 
 #### Prevent Ping and Telnet
 Below is the C code for the kernel module that blocks incoming ICMP Echo (ping) requests and TCP port 23 (Telnet) requests:
