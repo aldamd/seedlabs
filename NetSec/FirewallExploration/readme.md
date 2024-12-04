@@ -157,21 +157,26 @@ seed@VM:~/.../packet_filter$ dmesg
 [...]
 ```
 When performing a ping request, LOCAL_OUT, LOCAL_IN, POST_ROUTING, and PRE_ROUTING hook numbers are utilized.
+```
 LOCAL_OUT: packet is queued for output by local machine
 POST_ROUTING: packet routing has been calculated and is ready to be sent out
 PRE_ROUTING: packet is queued for input, before routing decisions have been made
 LOCAL_IN: packet destined for local machine has been registered
 FORWARD: packets not destined for local machine but are being forwarded to another host
+```
 
 #### Prevent Ping and Telnet
+Below is the C code for the kernel module that blocks incoming ICMP Echo (ping) requests and TCP port 23 (Telnet) requests:
 ```c
 unsigned int blockPingTelnet(void *priv, struct sk_buff *skb,
                              const struct nf_hook_state *state)
 {
-   if (!skb) return NF_ACCEPT;
-
    struct iphdr *ip_header;
    struct icmphdr *icmp_header;
+   struct tcphdr *tcp_header;
+   u16  port   = 23;
+
+   if (!skb) return NF_ACCEPT;
 
    // Block ping requests
    ip_header = ip_hdr(skb);
@@ -183,11 +188,9 @@ unsigned int blockPingTelnet(void *priv, struct sk_buff *skb,
        }
    }
 
-   struct tcphdr *tcp_header;
-   u16  port   = 23;
 
    // Block Telnet requests
-   if (iph->protocol == IPPROTO_TCP) {
+   if (ip_header->protocol == IPPROTO_TCP) {
        tcp_header = tcp_hdr(skb);
        if (ntohs(tcp_header->dest) == port){
             printk(KERN_WARNING "*** Blocked Telnet Request\n");
@@ -198,44 +201,11 @@ unsigned int blockPingTelnet(void *priv, struct sk_buff *skb,
    return NF_ACCEPT;
 }
 
-unsigned int printInfo(void *priv, struct sk_buff *skb,
-                 const struct nf_hook_state *state)
-{
-   //skb is the pointer to the actual packet
-   struct iphdr *iph;
-   char *hook;
-   char *protocol;
-
-   switch (state->hook){
-     case NF_INET_LOCAL_IN:     hook = "LOCAL_IN";     break; 
-     case NF_INET_LOCAL_OUT:    hook = "LOCAL_OUT";    break; 
-     case NF_INET_PRE_ROUTING:  hook = "PRE_ROUTING";  break; 
-     case NF_INET_POST_ROUTING: hook = "POST_ROUTING"; break; 
-     case NF_INET_FORWARD:      hook = "FORWARD";      break; 
-     default:                   hook = "IMPOSSIBLE";   break;
-   }
-   printk(KERN_INFO "*** %s\n", hook); // Print out the hook info
-
-   iph = ip_hdr(skb);
-   switch (iph->protocol){
-     case IPPROTO_UDP:  protocol = "UDP";   break;
-     case IPPROTO_TCP:  protocol = "TCP";   break;
-     case IPPROTO_ICMP: protocol = "ICMP";  break;
-     default:           protocol = "OTHER"; break;
-
-   }
-   // Print out the IP addresses and protocol
-   printk(KERN_INFO "    %pI4  --> %pI4 (%s)\n", 
-                    &(iph->saddr), &(iph->daddr), protocol);
-
-   return NF_ACCEPT;
-}
-
 int registerFilter(void) {
    printk(KERN_INFO "Registering filters.\n");
 
    hook1.hook = printInfo;
-   hook1.hooknum = NF_INET_LOCAL_IN;
+   hook1.hooknum = NF_INET_PRE_ROUTING;
    hook1.pf = PF_INET;
    hook1.priority = NF_IP_PRI_FIRST;
    nf_register_net_hook(&init_net, &hook1);
@@ -248,6 +218,46 @@ int registerFilter(void) {
 
    return 0;
 }
+```
+
+Here is the demo of the ping requests being blocked:
+```shell
+seed@VM:~/.../packet_filter$ sudo insmod seedFilter.ko
+[12/04/24]seed@VM:~/.../packet_filter$ ping 127.0.0.1
+PING 127.0.0.1 (127.0.0.1) 56(84) bytes of data.
+^C
+--- 127.0.0.1 ping statistics ---
+10 packets transmitted, 0 received, 100% packet loss, time 9210ms
+
+seed@VM:~/.../packet_filter$ dmesg
+[...]
+ 8386.306791] *** PRE_ROUTING
+[ 8386.306793]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[ 8386.306795] *** Blocked ICMP Echo Request
+[ 8387.331908] *** PRE_ROUTING
+[ 8387.331915]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[ 8387.331920] *** Blocked ICMP Echo Request
+[ 8388.355764] *** PRE_ROUTING
+[ 8388.355771]     127.0.0.1  --> 127.0.0.1 (ICMP)
+[ 8388.355776] *** Blocked ICMP Echo Request
+```
+
+Here is the demo of the Telnet requests being blocked:
+```shell
+seed@VM:~/.../packet_filter$ telnet localhost
+Trying 127.0.0.1...
+^C
+
+seed@VM:~/.../packet_filter$ dmesg
+[ 8515.244035] *** PRE_ROUTING
+[ 8515.244038]     127.0.0.1  --> 127.0.0.1 (TCP)
+[ 8515.244040] *** Blocked Telnet Request
+[ 8516.279834] *** PRE_ROUTING
+[ 8516.279841]     127.0.0.1  --> 127.0.0.1 (TCP)
+[ 8516.279847] *** Blocked Telnet Request
+[ 8518.517830] *** PRE_ROUTING
+[ 8518.517890]     127.0.0.1  --> 127.0.0.1 (TCP)
+[ 8518.517921] *** Blocked Telnet Request
 ```
 
 ## Task 2: Experimenting with Stateless Firewall Rules
