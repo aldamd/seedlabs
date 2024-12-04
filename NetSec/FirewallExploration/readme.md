@@ -553,14 +553,6 @@ Once the TCP connection is killed, it seems to remain in the conntrack listener 
 ----
 
 ### Task 3.B: Setting Up a Stateful Firewall
-
-1. All the internal hosts run a telnet server (listening to port 23). Outside hosts can only access the telnet
-server on 192.168.60.5, not the other internal hosts.
-2. Outside hosts cannot access other internal servers.
-3. Internal hosts can access all the internal servers.
-4. Internal hosts cannot access external servers.
-5. In this task, the connection tracking mechanism is not allowed. It will be used in a later task.
-
 ```shell
 seed@VM:~$ docksh seed-router
 root@954f931756c4:/# iptables -P INPUT DROP
@@ -610,7 +602,91 @@ rtt min/avg/max/mdev = 0.125/0.175/0.214/0.037 ms
 ```
 
 ## Task 4: Limiting Network Traffic
+**Experiment With the Second Rule**
+```shell
+seed@VM:~$ docksh seed-router
+root@954f931756c4:/# iptables -A FORWARD -s 10.9.0.5 -m limit --limit 10/minute --limit-burst 5 -j ACCEPT
+root@954f931756c4:/# iptables -A FORWARD -s 10.9.0.5 -j DROP
+
+seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
+root@de3799584b1f:/# ping 192.168.60.5
+PING 192.168.60.5 (192.168.60.5) 56(84) bytes of data.
+64 bytes from 192.168.60.5: icmp_seq=1 ttl=63 time=0.131 ms
+64 bytes from 192.168.60.5: icmp_seq=2 ttl=63 time=0.188 ms
+64 bytes from 192.168.60.5: icmp_seq=3 ttl=63 time=0.213 ms
+64 bytes from 192.168.60.5: icmp_seq=4 ttl=63 time=0.206 ms
+64 bytes from 192.168.60.5: icmp_seq=5 ttl=63 time=0.210 ms
+64 bytes from 192.168.60.5: icmp_seq=7 ttl=63 time=0.179 ms
+64 bytes from 192.168.60.5: icmp_seq=13 ttl=63 time=0.212 ms
+64 bytes from 192.168.60.5: icmp_seq=19 ttl=63 time=0.186 ms
+64 bytes from 192.168.60.5: icmp_seq=25 ttl=63 time=0.217 ms
+64 bytes from 192.168.60.5: icmp_seq=30 ttl=63 time=0.193 ms
+64 bytes from 192.168.60.5: icmp_seq=36 ttl=63 time=0.210 ms
+64 bytes from 192.168.60.5: icmp_seq=42 ttl=63 time=0.212 ms
+64 bytes from 192.168.60.5: icmp_seq=48 ttl=63 time=0.085 ms
+64 bytes from 192.168.60.5: icmp_seq=54 ttl=63 time=0.205 ms
+64 bytes from 192.168.60.5: icmp_seq=60 ttl=63 time=0.350 ms
+64 bytes from 192.168.60.5: icmp_seq=65 ttl=63 time=0.097 ms
+^C
+--- 192.168.60.5 ping statistics ---
+66 packets transmitted, 16 received, 75.7576% packet loss, time 67113ms
+rtt min/avg/max/mdev = 0.085/0.193/0.350/0.057 ms
+```
+
+After the first 5 pings, the connection was throttled to about 1 ping every 5 seconds.
+
+----
+
+**Experiment Without the Second Rule**
+Without the second rule, the ping requests seemingly continue undeterred, and the throttling doesn't take place.
+
+The second rule is needed because, with the default ACCEPT policy, once the rule's conditions are met and the packets are throttled, instead of being dropped subsequent packets are silently ignored but not explicity dropped
 
 ## Task 5: Load Balacing
+#### Round Robin Mode
+```shell
+seed@VM:~$ docksh seed-router
+root@954f931756c4:/# iptables -t nat -A PREROUTING -p udp --dport 8080 -m \
+statistic --mode nth --every 3 --packet 0 -j DNAT --to-destination 192.168.60.5:8080
+
+seed@VM:~$ docksh hostA-10.9.0.5
+seed@VM:~$ docksh hostA-10.9.0.5
+root@de3799584b1f:/# echo hello | nc -u 10.9.0.11 8080
+^C
+```
+
+Every third request gets rerouted to the UDP server on 192.168.60.5
+
+In order to balance this between the 3 UDP servers, we need to add 2 additional rules which change the attribute for --packet:
+```shell
+root@954f931756c4:/# iptables -t nat -A PREROUTING -p udp --dport 8080 -m \
+statistic --mode nth --every 3 --packet 1 -j DNAT --to-destination 192.168.60.6:8080
+
+root@954f931756c4:/# iptables -t nat -A PREROUTING -p udp --dport 8080 -m \
+statistic --mode nth --every 3 --packet 2 -j DNAT --to-destination 192.168.60.7:8080
+```
+
+With this, all 3 of the UDP servers take turns receiving the UDP requests
+
+----
+
+#### Random Mode
+```shell
+root@954f931756c4:/# iptables -t nat -A PREROUTING -p udp --dport 8080 -m \
+statistic --mode random --probability 0.33333333 -j DNAT --to-destination 192.168.60.5:8080
+
+root@954f931756c4:/# iptables -t nat -A PREROUTING -p udp --dport 8080 -m \
+statistic --mode random --probability 0.33333333 -j DNAT --to-destination 192.168.60.6:8080
+
+root@954f931756c4:/# iptables -t nat -A PREROUTING -p udp --dport 8080 -m \
+statistic --mode random --probability 0.33333333 -j DNAT --to-destination 192.168.60.7:8080
+```
+The above three rules utilize a probability of ~1/3 in order to be prerouted between the three UDP servers with addresses 192.168.60.[567]
+
+With this, there is a 0.33333333 chance that the router will redirect traffic to any of the three servers
+
+![image](https://github.com/user-attachments/assets/d8f325cb-7e78-466f-8402-3b6fc293ec3c)
 
 ## Task 6: Write-Up
+
+This lab covered a larger span of technical expertise than I was expecting. I thought it would mostly involve the iptables command line (which it eventually did), but I was pleasantly surprised with the initial challenges of working with kernel modules and Netfilter at a lower level. The C coding was fun, and I felt like it shows a more fundamental aspect of the firewall than most other tutorials out there would be capable of. The practical iptables rule creation was frustrating but good practice. Especially the later sections with connection tracking, rate-limiting and load balancing. I'd never had experience with rate-limiting and load balacing via iptables before so this was an elightening experience. 
