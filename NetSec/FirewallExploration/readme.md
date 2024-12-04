@@ -347,7 +347,7 @@ Chain OUTPUT (policy ACCEPT 0 packets, 0 bytes)
  pkts bytes target     prot opt in     out     source               destination
 ```
 
-Ping request from external host to internal host:
+**Ping request from external host to internal host**
 ```shell
 seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
 root@de3799584b1f:/# ping 192.168.60.5
@@ -357,7 +357,7 @@ PING 192.168.60.5 (192.168.60.5) 56(84) bytes of data.
 4 packets transmitted, 0 received, 100% packet loss, time 3077ms
 ```
 
-Ping request from external host to router:
+**Ping request from external host to router**
 ```shell
 root@de3799584b1f:/# ping 10.9.0.11
 PING 10.9.0.11 (10.9.0.11) 56(84) bytes of data.
@@ -370,7 +370,7 @@ PING 10.9.0.11 (10.9.0.11) 56(84) bytes of data.
 rtt min/avg/max/mdev = 0.091/0.140/0.169/0.035 ms
 ```
 
-Ping request from internal host to external host
+**Ping request from internal host to external host**
 ```shell
 seed@VM:~/.../packet_filter$ docksh host1-192.168.60.5
 root@e9f4cdfd25ae:/# ping 10.9.0.5
@@ -384,7 +384,7 @@ PING 10.9.0.5 (10.9.0.5) 56(84) bytes of data.
 rtt min/avg/max/mdev = 0.190/0.264/0.331/0.057 ms
 ```
 
-Ping request from internal host to internal host
+**Ping request from internal host to internal host**
 ```shell
 root@e9f4cdfd25ae:/# ping 192.168.60.6
 PING 192.168.60.6 (192.168.60.6) 56(84) bytes of data.
@@ -397,7 +397,7 @@ PING 192.168.60.6 (192.168.60.6) 56(84) bytes of data.
 rtt min/avg/max/mdev = 0.129/0.150/0.163/0.015 ms
 ```
 
-Telnet request from external host to internal host
+**Telnet request from external host to internal host**
 ```shell
 seed@VM:~/.../packet_filter$ docksh hostA-10.9.0.5
 root@de3799584b1f:/# telnet 192.168.60.5
